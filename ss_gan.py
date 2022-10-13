@@ -155,28 +155,66 @@ class Generator(nn.Module):
         return x
 
 
-
-
 class Discriminator(nn.Module):
 
-    def __init__(self):
+    def __init__(self, input_nc, ndf=64, n_layers=3):
+        """
+
+        :param inpyt_nc: 输入通道个数
+        :param ndf: 第一次卷积后的通道数
+        :param n_layers: 卷积层层数
+        """
         super(Discriminator, self).__init__()
 
-        pass
+        kw = 4
+        # 核大小
+        padw = 1
+        # 填充
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw, bias=False),
+                    nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):
+            nf_mult_prev = nf_mult
+            # 前一次扩大倍数
+            nf_mult = min(2**n, 8)
+            # 通道数扩大倍数
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=False),
+                nn.BatchNorm2d(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
 
-    def forward(self, image, labels):
-        # shape of images: [batchsize, 1, 28, 28]
+        nf_mult_prev = nf_mult
+        nf_mult = min(2**n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=False),
+            nn.BatchNorm2d(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True)
 
-        pass
+        ]
+
+        sequence += [
+            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
+        ]
+
+        self.model = nn.Sequential(*sequence)
+
+    def forward(self, image):
+
+        return self.model(image)
 
 
 
 
 if __name__ == '__main__':
-    image = torch.rand(1, 3, 256, 256)
-    model = UNet(10, 3)
-
-    back = model(image)
+    image = torch.rand(5, 3, 256, 256)
+    # model = UNet(10, 3)
+    #
+    # back = model(image)
+    # print(back.shape)
+    d = Discriminator(3)
+    back = d(image)
     print(back.shape)
 
     pass

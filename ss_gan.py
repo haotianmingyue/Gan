@@ -3,6 +3,7 @@
 # @anthor haotian
 # @date 2022/9/22
 # @file ss_gan.py
+import time
 
 import torch
 import torch.nn as nn
@@ -116,7 +117,9 @@ class UNet(nn.Module):
         self.up4 = Decoder(256, 128)
         self.up5 = Decoder(128, 64)
 
-        self.end_conv = nn.Conv2d(64, num_stroke, kernel_size=3*3, padding='same', bias=False)
+        self.end_conv = nn.Conv2d(64, num_stroke, kernel_size=3, padding='same', bias=False)
+        self.tanh = nn.Tanh()
+        self.sigmoid = nn.Sigmoid()
 
         # self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -136,12 +139,9 @@ class UNet(nn.Module):
         x = self.up5(x1, x)
 
         x = self.end_conv(x)
+        x = self.sigmoid(x)
 
         return x
-
-
-
-
 
 
 class Generator(nn.Module):
@@ -156,8 +156,9 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
+    # 每个通道对应一个二值壁画图像。鉴别器输出维数与特征映射张量的输出维数相同
 
-    def __init__(self, input_nc, ndf=64, n_layers=3):
+    def __init__(self, input_nc, output_nc, ndf=64, n_layers=3):
         """
 
         :param inpyt_nc: 输入通道个数
@@ -195,7 +196,7 @@ class Discriminator(nn.Module):
         ]
 
         sequence += [
-            nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)
+            nn.Conv2d(ndf * nf_mult, output_nc, kernel_size=kw, stride=1, padding=padw)
         ]
 
         self.model = nn.Sequential(*sequence)
@@ -205,15 +206,34 @@ class Discriminator(nn.Module):
         return self.model(image)
 
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+generator = Generator(20, 1).to(device)
+discriminator = Discriminator(20, 20).to(device)
+
+g_optimizer = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999), weight_decay=0.0001)
+d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=0.0004, betas=(0.5, 0.999), weight_decay=0.0001)
+# 优化器
+
+adv_loss = nn.BCELoss().to(device)
+l1_loss = nn.L1Loss().to(device)
+la = 10
+# 损失函数
+
+num_epoch = 100
+
+for epoch in range(num_epoch):
+    epoch_start_time = time.time()
+
 
 
 if __name__ == '__main__':
-    image = torch.rand(5, 3, 256, 256)
-    # model = UNet(10, 3)
+    image = torch.rand(1, 1, 256, 256)
+    # model = UNet(10, 1)
     #
     # back = model(image)
-    # print(back.shape)
-    d = Discriminator(3)
+    # print(back)
+    d = Discriminator(1, 1)
     back = d(image)
     print(back.shape)
 

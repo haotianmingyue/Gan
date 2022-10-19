@@ -7,6 +7,7 @@ import time
 
 import torch
 import torch.nn as nn
+from stroke_dataset import stroke_Dataset
 
 
 def x2conv(in_channels, out_channels, inner_channels=None):
@@ -98,7 +99,7 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
 
         self.start_conv = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=3, padding='same', bias=False),
+            nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(),
         )
@@ -117,13 +118,14 @@ class UNet(nn.Module):
         self.up4 = Decoder(256, 128)
         self.up5 = Decoder(128, 64)
 
-        self.end_conv = nn.Conv2d(64, num_stroke, kernel_size=3, padding='same', bias=False)
+        self.end_conv = nn.Conv2d(64, num_stroke, kernel_size=3, padding=1, bias=False)
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
 
         # self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
+        # print(x.dtype)
         x1 = self.start_conv(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
@@ -139,7 +141,7 @@ class UNet(nn.Module):
         x = self.up5(x1, x)
 
         x = self.end_conv(x)
-        x = self.sigmoid(x)
+        # x = self.sigmoid(x)
 
         return x
 
@@ -196,7 +198,8 @@ class Discriminator(nn.Module):
         ]
 
         sequence += [
-            nn.Conv2d(ndf * nf_mult, output_nc, kernel_size=kw, stride=1, padding=padw)
+            nn.Conv2d(ndf * nf_mult, output_nc, kernel_size=kw, stride=1, padding=padw),
+            nn.Sigmoid()
         ]
 
         self.model = nn.Sequential(*sequence)
@@ -204,6 +207,8 @@ class Discriminator(nn.Module):
     def forward(self, image):
 
         return self.model(image)
+
+
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -218,23 +223,95 @@ d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=0.0004, betas=(0.5
 adv_loss = nn.BCELoss().to(device)
 l1_loss = nn.L1Loss().to(device)
 la = 10
+# la = la.to(device)
 # 损失函数
 
-num_epoch = 100
+root = 'E:/PythonPPP/pythonTest/test'
+dataset = stroke_Dataset(root)
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
+
+# labels_one = torch.ones(1, 20, 30, 30)
+
+num_epoch = 1000
+
+torch.autograd.set_detect_anomaly(True)
 
 for epoch in range(num_epoch):
-    epoch_start_time = time.time()
+
+    for i, mini_batch in enumerate(dataloader):
+
+        epoch_start_time = time.time()
+        images, strokes = mini_batch
+        # 这里读进来的数据类型是 torch.uint8
+
+        images = images.float()
+        strokes = strokes.float()
+
+        # print(images.dtype, strokes.dtype)
+
+        images = images.to(device)
+        strokes = strokes.to(device)
+
+        b, c, h, w = strokes.shape
+        # strokes 通道数可能和 生成器生成的通道数不符， 只需要生成器的前 c个通道即可
+
+        labels_one =torch.tensor(1)
+        labels_one = labels_one.to(device)
+
+        pred_strokes = generator(images)
+        # print(pred_strokes)
 
 
 
-if __name__ == '__main__':
-    image = torch.rand(1, 1, 256, 256)
-    # model = UNet(10, 1)
-    #
-    # back = model(image)
-    # print(back)
-    d = Discriminator(1, 1)
-    back = d(image)
-    print(back.shape)
+        d_strokes = discriminator(pred_strokes)
 
-    pass
+        labels_one = labels_one.expand_as(d_strokes).float()
+        # patchgan d 生成是一个 矩阵， 标签应该也是个矩阵, 这里竟然默认是long型的变量
+        # print(labels_one.dtype)
+
+
+
+        g_optimizer.zero_grad()
+
+        l_adv = adv_loss(d_strokes[:, :c, :, :].data, labels_one[:, :c, :, :].data)
+        # 只算有笔画的通道
+        l_l1 = l1_loss(pred_strokes[:, :c, :, :].data, strokes.data)
+        g_l = l_adv.data + la * l_l1
+        g_l.requires_grad_(True)
+        g_l.backward(retain_graph=True)
+        g_optimizer.step()
+
+        d_optimizer.zero_grad()
+        # 那个变量改变了？？？
+        d_l = -l_adv
+        d_l.requires_grad_(True)
+        # 一直报错啊。。。。。。。。。。
+        d_l.backward(retain_graph=True)
+        d_optimizer.step()
+
+        if epoch % 50 == 0:
+            print(f"epoch: {epoch}, g_l: {g_l}, d_l: {d_l}, time :{time.time() - epoch_start_time}")
+        if epoch % 100 == 0:
+            image = pred_strokes[:, :c, :, :].data
+
+
+
+
+
+
+
+# if __name__ == '__main__':
+#     image = torch.rand(1, 1, 256, 256)
+#     # model = Generator(20, 1)
+#     # model = UNet(10, 1)
+#     # back = model(image)
+#     # print(back.shape)
+#     # model = UNet(10, 1)
+#     #
+#     # back = model(image)
+# #     # print(back)
+#     d = Discriminator(1, 1)
+#     back = d(image)
+#     print(back.shape)
+
+#     pass
